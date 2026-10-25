@@ -1,0 +1,6 @@
+.git
+data
+config.json
+node_modules
+deploy
+*.log
