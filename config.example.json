@@ -1,0 +1,45 @@
+{
+  "port": 8787,
+  "password": "changeme",
+  "fetchIntervalMinutes": 30,
+  "lookbackDays": 14,
+  "scoreThreshold": 0.6,
+  "maxPerKeyword": 8,
+  "keywords": [
+    "Claude Code",
+    "AI 编程",
+    "AI 编码",
+    "Agent 工作流",
+    "Cursor 教程",
+    "Gemini CLI",
+    "Codex",
+    "AI 编程助手",
+    "MCP",
+    "提示词工程"
+  ],
+  "sources": {
+    "bilibili": true,
+    "zhihu": true,
+    "hackernews": false
+  },
+  "llm": {
+    "baseUrl": "https://open.bigmodel.cn/api/paas/v4",
+    "model": "glm-4-flash",
+    "apiKey": ""
+  },
+  "productContext": "AISync：跨平台 AI 技能管理面板（桌面客户端 + 云空间），本地优先，支持 Claude Code、Codex、Gemini CLI、Cursor、ZCode 等 Agent 的技能扫描、收录、部署与同步；个人空间免费 5GB，本地能力永久免费。",
+  "playbook": {
+    "discipline": [
+      "以真实用户身份提供增量信息（真实体验、技巧补充），先给干货再自然带出工具",
+      "禁用模板化广告话术；每条评论的内容、句式都要不同",
+      "除非极其自然，否则不带链接、不堆参数",
+      "口语化、像真人随手写的；长度 60~140 字",
+      "不与作者或评论区其他用户争辩，不贬低竞品"
+    ],
+    "examples": [
+      "之前也遇到过这个问题，后来发现把 XX 配置里的 XX 打开就好了，可以试试",
+      "补充一个思路：这类场景其实用 XX 的 XX 功能会更省事，我上周刚好试过",
+      "写得很全，收藏了。第 3 点深有体会，我一般还会配合 XX 来做，效率高不少"
+    ]
+  }
+}

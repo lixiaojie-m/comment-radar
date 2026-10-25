@@ -1,0 +1,13 @@
+{
+  "name": "comment-radar",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "评论引流辅助：相关内容只读监控 + LLM 评分与草稿 + 人工审核队列。不做自动发布。",
+  "engines": {
+    "node": ">=18.14"
+  },
+  "scripts": {
+    "start": "node src/server.js"
+  }
+}
