@@ -59,7 +59,7 @@ PORT=8788 bash deploy/deploy-nas.sh     # 前提：本机公钥已加入 NAS 账
 ```
 
 - 容器名 `comment-radar`，`--restart unless-stopped`（NAS 重启后自动拉起）
-- 持久化：`/opt/comment-radar/config.json` 与 `data/`（bind mount，重建容器不丢数据）
+- 持久化：`/opt/comment-radar/conf/`（配置，目录挂载）与 `data/`（数据），bind mount，重建容器不丢数据
 - 访问：`http://nas-host:8788`（NAS 的 8787 被 NAS 系统服务占用，外网端口用 8788）
 - 基础镜像用 NAS 本地已有的 `node:22-bookworm`（Docker Hub 直拉会卡住）
 - LLM 配置为 DeepSeek（`https://api.deepseek.com` / `deepseek-chat`），key 在网页设置页填写

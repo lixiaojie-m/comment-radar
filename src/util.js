@@ -39,7 +39,13 @@ export function writeJsonAtomic(file, obj) {
   const tmp = file + '.tmp';
   fs.mkdirSync(path.dirname(file), { recursive: true });
   fs.writeFileSync(tmp, JSON.stringify(obj));
-  fs.renameSync(tmp, file);
+  try {
+    fs.renameSync(tmp, file);
+  } catch {
+    // 单文件 bind mount 上 rename 目标是挂载点，会 EBUSY；降级为直接覆写
+    fs.writeFileSync(file, JSON.stringify(obj));
+    fs.rmSync(tmp, { force: true });
+  }
 }
 
 export async function fetchJson(url, options = {}, { timeoutMs = 20000 } = {}) {

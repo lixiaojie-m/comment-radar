@@ -22,11 +22,14 @@ tar czf - \
 
 echo "==> 构建镜像并(重)启容器"
 ssh "$DEST" "cd $REMOTE_DIR \
+  && mkdir -p conf data \
+  && if [ -f config.json ] && [ ! -f conf/config.json ]; then mv config.json conf/config.json; fi \
   && docker build -q -t comment-radar:latest . \
   && (docker rm -f $CONTAINER 2>/dev/null || true) \
   && docker run -d --name $CONTAINER --restart unless-stopped \
        -p $PORT:8787 \
-       -v $REMOTE_DIR/config.json:/app/config.json \
+       -e CONFIG_FILE=/app/conf/config.json \
+       -v $REMOTE_DIR/conf:/app/conf \
        -v $REMOTE_DIR/data:/app/data \
        -e TZ=Asia/Shanghai \
        comment-radar:latest >/dev/null \
@@ -35,4 +38,4 @@ ssh "$DEST" "cd $REMOTE_DIR \
   && docker logs --tail 5 $CONTAINER"
 
 echo ""
-echo "==> 访问: http://nas-host:$PORT（密码见 $REMOTE_DIR/config.json）"
+echo "==> 访问: http://nas-host:$PORT（密码见 $REMOTE_DIR/conf/config.json）"
