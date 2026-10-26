@@ -249,10 +249,14 @@ function renderMain() {
       <div><h2>${cfg.title}</h2><div class="desc">${cfg.desc}</div></div>
       <div class="chips" id="platform-chips">
         ${['all', 'bilibili', 'zhihu', 'hackernews'].map((p) => `<span class="chip ${platformFilter === p ? 'active' : ''}" data-pf="${p}">${p === 'all' ? '全部' : PF_LABEL[p]}</span>`).join('')}
+        ${view === 'pending' || view === 'unscored' ? '<button class="btn-ghost primary" id="btn-redraft-all" title="用当前话术库把这一栏的草稿全部重写一遍">↻ 全部重新生成</button>' : ''}
       </div>
     </div>
     <div id="banner"></div>
     <div id="list">${'<div class="card skeleton"></div>'.repeat(3)}</div>`;
+
+  const redraftAllBtn = $('#btn-redraft-all');
+  if (redraftAllBtn) redraftAllBtn.addEventListener('click', triggerRedraftAll);
 
   $$('#platform-chips .chip').forEach((c) => c.addEventListener('click', () => {
     platformFilter = c.dataset.pf;
@@ -283,14 +287,28 @@ async function loadItems() {
   try {
     const data = await api(`/api/items?status=${cfg.status}&platform=${platformFilter}`);
     itemsCache = data.items;
-    statusCache = { ...statusCache, counts: data.counts, lastRun: data.lastRun, running: data.running };
+    statusCache = { ...statusCache, counts: data.counts, lastRun: data.lastRun, running: data.running, redraftJob: data.redraftJob };
     updateRunPill();
     updateNavCounts();
+    updateRedraftAllState();
     renderList();
   } catch (e) {
     if (e.message !== '未登录') {
       $('#list').innerHTML = `<div class="empty">${EMPTY_SVG}<h3>加载失败</h3><p>${escapeHtml(e.message)}</p></div>`;
     }
+  }
+}
+
+function updateRedraftAllState() {
+  const btn = $('#btn-redraft-all');
+  if (!btn) return;
+  const job = statusCache?.redraftJob;
+  if (job && !job.finishedAt) {
+    btn.disabled = true;
+    btn.textContent = `重写中 ${job.done}/${job.total}`;
+  } else {
+    btn.disabled = false;
+    btn.textContent = '↻ 全部重新生成';
   }
 }
 
@@ -468,6 +486,47 @@ function autosize(ta) {
   ta.style.height = ta.scrollHeight + 'px';
 }
 
+/* ---------- 批量重生 ---------- */
+
+async function triggerRedraftAll() {
+  const btn = $('#btn-redraft-all');
+  const count = statusCache?.counts?.[VIEWS[view].status] ?? 0;
+  if (!count) return toast('这一栏没有条目');
+  if (!confirm(`把「${VIEWS[view].title}」里的 ${count} 条草稿全部用当前话术库重写一遍？\n已手动改过的草稿会被覆盖。`)) return;
+
+  btn.disabled = true;
+  btn.textContent = '启动中…';
+  try {
+    const r = await api('/api/redraft-all', { method: 'POST', body: JSON.stringify({ status: VIEWS[view].status }) });
+    toast(`开始重写 ${r.total} 条，进度会实时更新`);
+    pollRedraft();
+  } catch (e) {
+    if (e.message !== '未登录') toast(e.message, 'err');
+    btn.disabled = false;
+    btn.textContent = '↻ 全部重新生成';
+  }
+}
+
+function pollRedraft() {
+  const tick = async () => {
+    await refreshStatus();
+    try {
+      const data = await api(`/api/items?status=${view === 'unscored' ? 'unscored' : 'pending'}&platform=${platformFilter}`);
+      statusCache = { ...statusCache, counts: data.counts, redraftJob: data.redraftJob };
+      itemsCache = data.items;
+      updateNavCounts();
+      renderList();
+      updateRedraftAllState();
+    } catch {
+      /* 轮询失败继续 */
+    }
+    const job = statusCache?.redraftJob;
+    if (job && !job.finishedAt) setTimeout(tick, 3000);
+    else if (job) toast(`重写完成：${job.done - job.failed} 条成功${job.failed ? `，${job.failed} 条失败` : ''}`);
+  };
+  setTimeout(tick, 2000);
+}
+
 /* ---------- 立即抓取 ---------- */
 
 async function triggerRun() {
@@ -499,6 +558,7 @@ async function refreshStatus() {
     statusCache = await api('/api/status');
     updateRunPill();
     updateNavCounts();
+    updateRedraftAllState();
     const box = $('.sources');
     if (box) {
       const sources = Object.entries(statusCache.sources || {})
@@ -578,8 +638,10 @@ async function renderSettings() {
         <textarea id="f-product" spellcheck="false">${escapeHtml(cfg.productContext)}</textarea></div>
       <div class="field"><label>评论纪律（每行一条，AI 必须遵守）</label>
         <textarea id="f-discipline" spellcheck="false">${escapeHtml((cfg.playbook?.discipline || []).join('\n'))}</textarea></div>
-      <div class="field"><label>话术示例（每行一条，只学语气不照抄）</label>
+      <div class="field"><label>真实口吻示例（每行一条，只学语气不照抄）</label>
         <textarea id="f-examples" spellcheck="false">${escapeHtml((cfg.playbook?.examples || []).join('\n'))}</textarea></div>
+      <div class="field"><label>产品提及率（0~1，越低越像真人；0.25 约每 4 条提一次）</label>
+        <div class="range-row"><input type="range" id="f-mention-rate" min="0" max="1" step="0.05" value="${cfg.playbook?.productMentionRate ?? 0.25}"><output id="f-mention-out">${cfg.playbook?.productMentionRate ?? 0.25}</output></div></div>
     </div>
 
     <div class="form-section">
@@ -632,6 +694,7 @@ async function renderSettings() {
   editor.addEventListener('click', () => kwInput.focus());
 
   $('#f-threshold').addEventListener('input', (e) => ($('#f-threshold-out').textContent = e.target.value));
+  $('#f-mention-rate').addEventListener('input', (e) => ($('#f-mention-out').textContent = e.target.value));
 
   $('#btn-export').addEventListener('click', () => {
     window.open('/api/export', '_blank');
@@ -656,6 +719,7 @@ async function renderSettings() {
       playbook: {
         discipline: $('#f-discipline').value.split('\n').map((s) => s.trim()).filter(Boolean),
         examples: $('#f-examples').value.split('\n').map((s) => s.trim()).filter(Boolean),
+        productMentionRate: Number($('#f-mention-rate').value),
       },
       llm: {
         baseUrl: $('#f-llm-url').value.trim(),

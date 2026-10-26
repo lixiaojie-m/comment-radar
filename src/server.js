@@ -25,6 +25,10 @@ const MIME = {
 // 会话 token 由密码派生：改密码后所有已登录会话即时失效
 const tokenFor = () => sha256(getConfig().password + '::comment-radar');
 
+// 批量重生草稿的后台任务状态，null 表示没跑过
+let redraftJob = null;
+const redraftBusy = () => Boolean(redraftJob && !redraftJob.finishedAt);
+
 function parseCookies(req) {
   const out = {};
   for (const part of String(req.headers.cookie || '').split(';')) {
@@ -100,7 +104,7 @@ async function handleApi(req, res, url) {
     const status = url.searchParams.get('status') || undefined;
     const platform = url.searchParams.get('platform') || 'all';
     const items = store.list({ status, platform, limit: Number(url.searchParams.get('limit')) || 300 });
-    return send(res, 200, { items, counts: store.counts(), running: isRunning(), lastRun: store.lastRun() });
+    return send(res, 200, { items, counts: store.counts(), running: isRunning(), redraftJob, lastRun: store.lastRun() });
   }
 
   let m;
@@ -138,8 +142,47 @@ async function handleApi(req, res, url) {
     }
   }
 
-  if (method === 'POST' && pathname === '/api/run') {
-    if (isRunning()) return send(res, 409, { error: '已有抓取在进行中' });
+  // 批量重生：改完话术库/prompt 后把存量草稿整体重写一遍
+  if (method === 'POST' && pathname === '/api/redraft-all') {
+    if (!llmConfigured()) return send(res, 400, { error: '未配置 LLM key，请到设置页填写' });
+    if (redraftBusy()) return send(res, 409, { error: '批量生成进行中，请等它跑完' });
+    const body = await readBody(req);
+    const status = body.status === 'unscored' ? 'unscored' : 'pending';
+    const targets = store.list({ status, limit: 500 }).map((it) => it.id);
+    if (!targets.length) return send(res, 200, { total: 0 });
+
+    redraftJob = { total: targets.length, done: 0, failed: 0, startedAt: new Date().toISOString(), finishedAt: null };
+    const job = redraftJob;
+    (async () => {
+      const avoid = store.recentDrafts(8);
+      for (const id of targets) {
+        const it = store.get(id);
+        if (!it) {
+          job.done++;
+          continue;
+        }
+        try {
+          it.draft = await draftOne(it, avoid);
+          avoid.push(it.draft);
+          if (avoid.length > 14) avoid.shift();
+          if (it.status !== 'pending') it.status = 'pending';
+          job.done++;
+        } catch {
+          job.failed++;
+          job.done++;
+        }
+        await new Promise((r) => setTimeout(r, 300));
+      }
+      job.finishedAt = new Date().toISOString();
+      flush();
+    })().catch(() => {
+      job.finishedAt = new Date().toISOString();
+    });
+
+    return send(res, 202, { started: true, total: targets.length });
+  }
+
+  if (method === 'POST' && pathname === '/api/run') {    if (isRunning()) return send(res, 409, { error: '已有抓取在进行中' });
     const runP = runPipeline('manual');
     const timeout = new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), 240_000));
     try {
@@ -162,6 +205,7 @@ async function handleApi(req, res, url) {
       lastRun: last,
       counts: store.counts(),
       sources,
+      redraftJob,
       llm: { configured: llmConfigured(), baseUrl: getConfig().llm?.baseUrl, model: getConfig().llm?.model, keyMasked: key ? key.slice(0, 4) + '****' + key.slice(-2) : '' },
       fetchIntervalMinutes: getConfig().fetchIntervalMinutes,
     });

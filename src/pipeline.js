@@ -65,6 +65,7 @@ export async function runPipeline(trigger = 'manual') {
         }
       }
 
+      // 避雷列表随本批生成滚进滚出，否则同一轮的草稿彼此不知道对方存在，结构会撞
       const avoid = store.recentDrafts(8);
       const toDraft = candidates
         .map((c) => store.get(c.id))
@@ -72,6 +73,8 @@ export async function runPipeline(trigger = 'manual') {
       for (const it of toDraft) {
         try {
           it.draft = await draftOne(it, avoid);
+          avoid.push(it.draft);
+          if (avoid.length > 14) avoid.shift();
           it.status = 'pending';
           run.drafted++;
           await sleep(600);
