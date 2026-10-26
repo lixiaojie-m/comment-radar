@@ -640,8 +640,10 @@ async function renderSettings() {
         <textarea id="f-discipline" spellcheck="false">${escapeHtml((cfg.playbook?.discipline || []).join('\n'))}</textarea></div>
       <div class="field"><label>真实口吻示例（每行一条，只学语气不照抄）</label>
         <textarea id="f-examples" spellcheck="false">${escapeHtml((cfg.playbook?.examples || []).join('\n'))}</textarea></div>
-      <div class="field"><label>产品提及率（0~1，越低越像真人；0.25 约每 4 条提一次）</label>
-        <div class="range-row"><input type="range" id="f-mention-rate" min="0" max="1" step="0.05" value="${cfg.playbook?.productMentionRate ?? 0.25}"><output id="f-mention-out">${cfg.playbook?.productMentionRate ?? 0.25}</output></div></div>
+      <div class="field"><label>产品名（用于校验每条草稿是否真的带上了，留空则不做校验）</label>
+        <input type="text" id="f-product-name" value="${escapeHtml(cfg.playbook?.productName || 'AISync')}" placeholder="AISync"></div>
+      <div class="field"><label>产品提及率（1 = 每条都带产品；调到 0.5 则一半是纯干货，更不像广告号）</label>
+        <div class="range-row"><input type="range" id="f-mention-rate" min="0" max="1" step="0.05" value="${cfg.playbook?.productMentionRate ?? 1}"><output id="f-mention-out">${cfg.playbook?.productMentionRate ?? 1}</output></div></div>
     </div>
 
     <div class="form-section">
@@ -717,6 +719,7 @@ async function renderSettings() {
       maxPerKeyword: Math.max(1, Number($('#f-maxkw').value) || 8),
       productContext: $('#f-product').value.trim(),
       playbook: {
+        productName: $('#f-product-name').value.trim(),
         discipline: $('#f-discipline').value.split('\n').map((s) => s.trim()).filter(Boolean),
         examples: $('#f-examples').value.split('\n').map((s) => s.trim()).filter(Boolean),
         productMentionRate: Number($('#f-mention-rate').value),

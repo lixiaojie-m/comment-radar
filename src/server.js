@@ -80,7 +80,17 @@ function serveStatic(req, res, pathname) {
   fs.readFile(full, (err, buf) => {
     if (err) return send(res, 404, { error: 'Not Found' });
     const ext = path.extname(full).toLowerCase();
-    send(res, 200, buf, { 'content-type': MIME[ext] || 'application/octet-stream', 'cache-control': ext === '.html' ? 'no-cache' : 'public, max-age=300' });
+    // 无构建步骤，用 mtime 做 ETag，部署后浏览器立刻拿到新版本而不是吃 5 分钟缓存
+    const etag = `W/"${buf.length.toString(16)}-${fs.statSync(full).mtimeMs.toString(16)}"`;
+    if (req.headers['if-none-match'] === etag) {
+      res.writeHead(304, { etag, 'cache-control': 'no-cache' });
+      return res.end();
+    }
+    send(res, 200, buf, {
+      'content-type': MIME[ext] || 'application/octet-stream',
+      'cache-control': 'no-cache',
+      etag,
+    });
   });
 }
 
@@ -133,7 +143,7 @@ async function handleApi(req, res, url) {
     if (!it) return send(res, 404, { error: '条目不存在' });
     if (!llmConfigured()) return send(res, 400, { error: '未配置 LLM key，请到设置页填写' });
     try {
-      const avoid = [...store.recentDrafts(8), ...(it.draft ? [it.draft] : [])];
+      const avoid = [...store.recentDrafts(6), ...store.otherDrafts(it.id, 10)];
       it.draft = await draftOne(it, avoid);
       store.update(it.id, {});
       return send(res, 200, { item: it });

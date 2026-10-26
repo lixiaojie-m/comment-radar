@@ -29,7 +29,8 @@
   },
   "productContext": "AISync：跨平台 AI 技能管理面板（桌面客户端 + 云空间），本地优先，支持 Claude Code、Codex、Gemini CLI、Cursor、ZCode 等 Agent 的技能扫描、收录、部署与同步；个人空间免费 5GB，本地能力永久免费。",
   "playbook": {
-    "productMentionRate": 0.25,
+    "productName": "AISync",
+    "productMentionRate": 1,
     "discipline": [
       "以真实用户身份提供增量信息（真实体验、技巧补充），先给干货再自然带出工具",
       "禁用模板化广告话术；每条评论的内容、句式都要不同",
@@ -41,7 +42,7 @@
       "第 3 点我踩过，srt 导出来时间轴全错位，ffmpeg 升到 6.1 才正常",
       "试了下直接报 module not found，是我少装了啥吗",
       "跑 1080p 一分钟要四十分钟，你这用的什么卡",
-      "这个坑我们组三个人轮流中招，最后发现是缓存目录没清"
+      "同款需求，我把常用的几个 prompt 丢 AISync 里了，换电脑直接拉回来"
     ]
   }
 }

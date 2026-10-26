@@ -86,6 +86,15 @@ export const store = {
       .map((i) => i.editedDraft || i.draft);
   },
 
+  /** 其他条目已有的草稿，单条重生时用来避免和邻居撞句式 */
+  otherDrafts(excludeId, n = 8) {
+    return [...byId.values()]
+      .filter((i) => i.id !== excludeId && i.draft && i.status !== 'discarded')
+      .sort((a, b) => (b.firstSeenAt || '').localeCompare(a.firstSeenAt || ''))
+      .slice(0, n)
+      .map((i) => i.draft);
+  },
+
   prune(days = 45) {
     const cutoff = Date.now() - days * 86400_000;
     let removed = 0;

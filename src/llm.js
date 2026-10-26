@@ -21,8 +21,13 @@ async function chat(messages, { json = false, temperature = 0.7, maxTokens = 120
       );
       if (!data) throw new Error(`LLM HTTP ${res.status}`);
       if (data.error) throw new Error(data.error.message || JSON.stringify(data.error).slice(0, 120));
-      const text = data.choices?.[0]?.message?.content;
+      const choice = data.choices?.[0];
+      const text = choice?.message?.content;
       if (!text) throw new Error('LLM 空响应');
+      // 被 token 上限截断的文本不能直接用，加倍预算重跑一次
+      if (choice.finish_reason === 'length' && maxTokens < 4000) {
+        return chat(messages, { json, temperature, maxTokens: maxTokens * 2 });
+      }
       return text;
     } catch (e) {
       lastErr = e;
@@ -92,7 +97,21 @@ const STYLE_RULES = `1. 长度：25~80 字是常态，最多 110 字。宁可短
    - 「看完最大的感受是」
    - 「最怕的就是」
    - 「建议把……」
-   - 「……性价比更高 / 更划算 / 值得一试」`;
+   - 「……性价比更高 / 更划算 / 值得一试」
+8. 以下尾巴已经被用烂了，一条都不许出现：
+   - 「就是 XX 那块还没用明白 / 没摸透 / 没用顺」
+   - 「换机器不用重新调 / 换电脑直接拉回来 / 哪台机器都能调出来」
+   - 「丢 XX 里存着 / 存一份 / 存了版」`;
+
+// 每条随机分配一种产品提及方式，避免 81 条全收敛到同一个句式
+const MENTION_STYLES = [
+  '放在「我的做法」里陈述事实，只说做了什么，不评价好坏',
+  '极短插入，产品那句不超过 12 个字，说完立刻回到原话题',
+  '说明为什么用它（换机器 / 多设备 / 团队协作，挑一个最贴合本条内容的），不吹效果',
+  '带一个具体的小限制：必须是具体功能点或具体场景，不能是「还没用明白」这种含糊话',
+  '结尾顺带问对方一句相关的问题，但产品必须出现在问句之前，绝不能省略',
+  '只提一次，放在句子中段做插入语，不要单独成句',
+];
 
 const STYLE_EXAMPLES = `（下面左边是 AI 味，右边是真人；学右边，绝不学左边）
 
@@ -106,18 +125,32 @@ AI：「多 agent 并行最怕的就是互相覆盖，我之前的笨办法是�
 真人：「八个 agent 同时改同一个文件，第二天早上看到 30 个冲突差点心梗。现在只敢让它们分目录干活」
 
 AI：「看完最大的感受是，Stripe 快不是因为模型多强，而是把上下文沉淀下来了。」
-真人：「在 Stripe 待过的朋友说他们内部文档比代码还多，新人第一周基本都在读文档，这点挺反直觉的」`;
+真人：「在 Stripe 待过的朋友说他们内部文档比代码还多，新人第一周基本都在读文档，这点挺反直觉的」
+
+—— 带产品的真人写法（重点是"顺口一提"，不是"介绍功能"）——
+
+AI 味：「我后来用 AISync 统一管理所有技能，跨平台自动同步，效率提升明显，强烈推荐。」
+真人：「我也差不多，两个 agent 来回改同一个配置，后面干脆按 agent 分了目录，顺手丢 AISync 里存着，换机器直接拉回来。就是团队共享那块还没用明白」`;
 
 /** 单条起草：avoidDrafts 是最近已发评论，用于避开雷同句式 */
 export async function draftOne(item, avoidDrafts = [], { allowProduct } = {}) {
   const cfg = getConfig();
   const pb = cfg.playbook || {};
-  const rate = typeof pb.productMentionRate === 'number' ? pb.productMentionRate : 0.25;
-  // 默认按配置的露出率随机，保证绝大多数评论是纯干货，不至于每条都像广告
+  const rate = typeof pb.productMentionRate === 'number' ? pb.productMentionRate : 1;
+  // 默认每条都带产品（引流目的），rate 调低才会出现纯干货条目
   const allow = allowProduct === undefined ? Math.random() < rate : Boolean(allowProduct);
 
   const productRule = allow
-    ? `这条可以顺带提一句产品，但必须满足：干货占全篇 2/3 以上，产品只用一句话带过，而且不能出现「统一管理」「一键同步」「扫描所有 Agent」「沉淀成团队资产」这类广告词。读起来像是你刚好在用、随口一提。硬塞的话就干脆不提。`
+    ? `这条要带到产品，但必须是「真实用户在讲自己的做法时顺口提到」，不是推荐、不是介绍功能。
+
+本次指定的提及方式（必须按这个来，不要用其他套路）：${MENTION_STYLES[Math.floor(Math.random() * MENTION_STYLES.length)]}
+
+硬要求：
+- 产品只出现在后半段，前面必须先有具体的干货或经历，且干货至少占一半篇幅
+- 只讲一个具体用法，绝不罗列功能
+- 产品全名最多出现一次，说完就收，不要重复强调
+- 绝对不能出现：统一管理、一键、自动同步、沉淀、资产、神器、强烈推荐、效率翻倍、值得一试、平替
+- 读起来要像「我刚好在用，顺口提一句」，不是「我来安利」`
     : `这条不要提任何产品名，也不要暗示存在某个工具能解决。就写一条纯干货评论，把它当成你自己在评论区交朋友。`;
 
   const sys = `你在 B 站 / 知乎评论区用个人账号写评论。目标：看起来像一个真实用户在随手回复，不像运营号，也不像 AI。
@@ -139,22 +172,27 @@ ${(pb.examples || []).length ? `\n团队积累过的真实口吻（只学语气�
 
   let avoid = '';
   if (avoidDrafts.length) {
-    avoid = `\n\n以下是已经用过的评论，新评论的开头方式、句式和叙事结构都必须明显不同（内容可以同题材）：\n${avoidDrafts
-      .map((d) => `- ${truncate(d, 90)}`)
+    avoid = `\n\n以下评论已经用过（含其他条目的草稿）。你的开头方式、产品那一句的写法、结尾方式都必须和它们不同，同一个表述不能再用第二次：\n${avoidDrafts
+      .map((d) => `- ${String(d).trim()}`)
       .join('\n')}`;
   }
   const user = `平台：${item.platform}（${item.type}）\n标题：${item.title}\n内容摘要：${truncate(
     item.summary || '（无摘要）',
     200,
   )}\n（切入方向仅作参考，和内容不符就忽略：${item.angle || '无'}）${avoid}`;
-  const out = await chat(
-    [
-      { role: 'system', content: sys },
-      { role: 'user', content: user },
-    ],
-    { temperature: 1, maxTokens: 400 },
-  );
-  return out.trim().replace(/^["「『]|["」』]$/g, '');
+  const messages = [
+    { role: 'system', content: sys },
+    { role: 'user', content: user },
+  ];
+
+  const productName = String(pb.productName || 'AISync');
+  let text = '';
+  for (let attempt = 0; attempt < 3; attempt++) {
+    text = (await chat(messages, { temperature: 1, maxTokens: 600 })).trim().replace(/^["「『]|["」』]$/g, '');
+    // prompt 管不住模型偶尔漏掉产品名，这里强制兜一层：没带上就重写
+    if (!allow || text.includes(productName)) break;
+  }
+  return text;
 }
 
 export { llmConfigured };
