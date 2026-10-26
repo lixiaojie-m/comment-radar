@@ -234,6 +234,7 @@ function updateRunPill() {
 function switchView(v) {
   view = v;
   localStorage.setItem('cr.view', v);
+  lastListSig = '';
   $$('.nav a').forEach((a) => a.classList.toggle('active', a.dataset.view === v));
   renderMain();
 }
@@ -270,7 +271,8 @@ function renderMain() {
   const bannerLink = $('#banner a[data-goto]');
   if (bannerLink) bannerLink.addEventListener('click', () => switchView('settings'));
 
-  loadItems();
+  lastListSig = '';
+  loadItems({ force: true });
 }
 
 const EMPTY_SVG = `<svg width="120" height="84" viewBox="0 0 120 84" fill="none">
@@ -281,7 +283,14 @@ const EMPTY_SVG = `<svg width="120" height="84" viewBox="0 0 120 84" fill="none"
   <path d="M70 34 L88 24" stroke="#FB7299" stroke-width="2" stroke-linecap="round"/>
 </svg>`;
 
-async function loadItems() {
+// 轮询与批量重写都会反复拉数据；数据没变就不该重建 DOM，否则卡片入场动画会重放成闪屏
+let lastListSig = '';
+const animatedIds = new Set();
+
+const listSignature = (items) =>
+  items.map((it) => `${it.id}:${it.status}:${(it.draft || '').length}:${it.score ?? ''}`).join('|');
+
+async function loadItems({ force = false } = {}) {
   const cfg = VIEWS[view];
   if (!cfg || !cfg.status) return;
   try {
@@ -291,6 +300,14 @@ async function loadItems() {
     updateRunPill();
     updateNavCounts();
     updateRedraftAllState();
+
+    // 正在编辑草稿时别重绘，否则输入内容和光标位置会被冲掉
+    const focused = document.activeElement;
+    if (focused && focused.tagName === 'TEXTAREA' && focused.closest('#list')) return;
+
+    const sig = listSignature(data.items);
+    if (!force && sig === lastListSig) return;
+    lastListSig = sig;
     renderList();
   } catch (e) {
     if (e.message !== '未登录') {
@@ -346,6 +363,10 @@ function renderList() {
 }
 
 function itemCard(it, i) {
+  // 只有第一次出现的条目才播放入场动画，重绘时保持静止
+  const isNew = !animatedIds.has(it.id);
+  animatedIds.add(it.id);
+  const animStyle = isNew ? `style="--i:${Math.min(i, 8)}"` : 'style="animation:none"';
   const stats = [
     it.stats?.views !== null && it.stats?.views !== undefined ? `▶ ${fmtNum(it.stats.views)}` : '',
     it.stats?.comments ? `💬 ${fmtNum(it.stats.comments)}` : '',
@@ -364,7 +385,7 @@ function itemCard(it, i) {
        <div class="draft-empty">还没有草稿（可能生成失败），点右上「生成草稿」重试。</div>`;
 
   return `
-  <article class="card item" data-id="${escapeHtml(it.id)}" style="--i:${i}">
+  <article class="card item" data-id="${escapeHtml(it.id)}" ${animStyle}>
     <div class="item-head">
       <span class="pf pf-${it.platform}">${PF_LABEL[it.platform] || it.platform}</span>
       <span class="type">${TYPE_LABEL[it.type] || ''}</span>
@@ -387,12 +408,15 @@ function itemCard(it, i) {
 }
 
 function rowCard(it, i) {
+  const isNew = !animatedIds.has(it.id);
+  animatedIds.add(it.id);
+  const animStyle = isNew ? `style="--i:${Math.min(i, 8)}"` : 'style="animation:none"';
   const draft = it.editedDraft || it.draft;
   const canRestore = view === 'posted' || view === 'discarded';
   const score = it.score != null ? `<span class="score ${scoreTier(it.score)}">${Number(it.score).toFixed(2)}</span>` : '';
   const stats = [it.stats?.views ? `▶ ${fmtNum(it.stats.views)}` : '', it.stats?.heat ? `热度 ${fmtNum(it.stats.heat)}` : ''].filter(Boolean).join(' · ');
   return `
-  <article class="card row-card" data-id="${escapeHtml(it.id)}" style="--i:${i}">
+  <article class="card row-card" data-id="${escapeHtml(it.id)}" ${animStyle}>
     <span class="pf pf-${it.platform}">${PF_LABEL[it.platform] || it.platform}</span>
     ${score}
     <a class="item-title" href="${escapeHtml(it.url)}" target="_blank" rel="noopener">${escapeHtml(it.title)}</a>
