@@ -2,11 +2,39 @@ import { store, flush } from './store.js';
 import { getConfig, llmConfigured } from './config.js';
 import * as bilibili from './sources/bilibili.js';
 import * as zhihu from './sources/zhihu.js';
+import * as toutiao from './sources/toutiao.js';
 import * as hackernews from './sources/hackernews.js';
 import { scoreBatch, draftOne } from './llm.js';
 import { sleep } from './util.js';
 
-const SOURCES = { bilibili, zhihu, hackernews };
+const SOURCES = { bilibili, zhihu, toutiao, hackernews };
+
+/** 单条走完评分+起草，供手动投递使用 */
+export async function scoreAndDraftOne(item) {
+  const cfg = getConfig();
+  if (!llmConfigured()) {
+    item.status = 'unscored';
+    flush();
+    return item;
+  }
+  const [r] = await scoreBatch([item]);
+  item.score = Math.max(0, Math.min(1, Number(r.score) || 0));
+  item.angle = r.angle || '';
+  item.scoreReason = r.reason || '';
+  if (item.score < (cfg.scoreThreshold ?? 0.6)) {
+    item.status = 'low_score';
+    flush();
+    return item;
+  }
+  try {
+    item.draft = await draftOne(item, [...store.recentDrafts(6), ...store.otherDrafts(item.id, 8)]);
+    item.status = 'pending';
+  } catch {
+    item.status = 'unscored';
+  }
+  flush();
+  return item;
+}
 
 let running = false;
 export const isRunning = () => running;

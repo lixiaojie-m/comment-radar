@@ -24,6 +24,10 @@
   --pf-bilibili: #fb7299;
   --pf-zhihu: #2e7be8;
   --pf-hackernews: #f26f38;
+  --pf-toutiao: #f04142;
+  --pf-douyin: #161823;
+  --pf-xiaohongshu: #ff2442;
+  --pf-manual: #6b6680;
 
   --radius-s: 8px;
   --radius-m: 10px;
@@ -190,6 +194,35 @@ h1, h2, h3, p { margin: 0; }
 .pf-bilibili { background: var(--pf-bilibili); }
 .pf-zhihu { background: var(--pf-zhihu); }
 .pf-hackernews { background: var(--pf-hackernews); }
+.pf-toutiao { background: var(--pf-toutiao); }
+.pf-douyin { background: var(--pf-douyin); }
+.pf-xiaohongshu { background: var(--pf-xiaohongshu); }
+.pf-manual { background: var(--pf-manual); }
+
+/* ============ 弹窗 ============ */
+.modal-mask {
+  position: fixed; inset: 0; z-index: 90;
+  background: rgba(20, 18, 40, 0.34);
+  display: flex; align-items: center; justify-content: center;
+  padding: var(--sp-4);
+  animation: fadeIn 0.16s var(--ease-standard);
+  backdrop-filter: blur(2px);
+}
+@keyframes fadeIn { from { opacity: 0; } }
+.modal {
+  width: 460px; max-width: 100%;
+  background: var(--surface);
+  border-radius: 18px;
+  box-shadow: var(--shadow-2);
+  padding: var(--sp-6);
+  animation: modalIn 0.24s var(--ease-spring);
+}
+@keyframes modalIn { from { opacity: 0; transform: translateY(14px) scale(0.97); } }
+.modal h3 { font-size: 16px; font-weight: 680; margin-bottom: 4px; }
+.modal-desc { font-size: 12.5px; color: var(--muted); line-height: 1.55; margin-bottom: var(--sp-4); }
+.modal .field { margin-bottom: var(--sp-3); }
+.modal-err { color: var(--danger); font-size: 12.5px; min-height: 18px; }
+.modal-actions { display: flex; justify-content: flex-end; gap: var(--sp-2); margin-top: var(--sp-2); }
 
 .type { font-size: 11px; color: var(--faint); }
 

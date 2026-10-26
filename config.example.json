@@ -20,6 +20,7 @@
   "sources": {
     "bilibili": true,
     "zhihu": true,
+    "toutiao": true,
     "hackernews": false
   },
   "llm": {

@@ -4,14 +4,16 @@ import path from 'node:path';
 import { sha256, randomHex } from './util.js';
 import { getConfig, updateConfig, publicConfig, llmConfigured, rootDir } from './config.js';
 import { store, flush } from './store.js';
-import { runPipeline, isRunning } from './pipeline.js';
+import { runPipeline, isRunning, scoreAndDraftOne } from './pipeline.js';
 import { startScheduler } from './scheduler.js';
 import { draftOne } from './llm.js';
+import { detectPlatform, enrichFromUrl, PLATFORMS } from './ingest.js';
 import * as bilibili from './sources/bilibili.js';
 import * as zhihu from './sources/zhihu.js';
+import * as toutiao from './sources/toutiao.js';
 import * as hackernews from './sources/hackernews.js';
 
-const SOURCE_LABELS = { bilibili: bilibili.label, zhihu: zhihu.label, hackernews: hackernews.label };
+const SOURCE_LABELS = { bilibili: bilibili.label, zhihu: zhihu.label, toutiao: toutiao.label, hackernews: hackernews.label };
 const PUBLIC_DIR = path.join(rootDir(), 'public');
 const MIME = {
   '.html': 'text/html; charset=utf-8',
@@ -190,6 +192,44 @@ async function handleApi(req, res, url) {
     });
 
     return send(res, 202, { started: true, total: targets.length });
+  }
+
+  // 手动投递：抖音/小红书这类抓不到的平台，由用户把看到的内容丢进来
+  if (method === 'POST' && pathname === '/api/ingest') {
+    const body = await readBody(req);
+    const rawUrl = String(body.url || '').trim();
+    if (!/^https?:\/\//i.test(rawUrl)) return send(res, 400, { error: '请填写以 http(s):// 开头的链接' });
+
+    const platform = detectPlatform(rawUrl);
+    const enriched = await enrichFromUrl(rawUrl);
+    const title = String(body.title || '').trim() || enriched.title;
+    if (!title) {
+      return send(res, 422, { error: '该平台不允许自动读取，请补一句标题或内容摘要再投递', platform, needsTitle: true });
+    }
+    const finalUrl = enriched.finalUrl || rawUrl;
+    const itemId = `manual:${sha256(finalUrl).slice(0, 16)}`;
+    if (store.get(itemId)) return send(res, 409, { error: '这条已经投递过了' });
+
+    const [item] = store.upsert([
+      {
+        id: itemId,
+        platform,
+        type: 'post',
+        title,
+        author: '',
+        url: finalUrl,
+        summary: String(body.summary || '').trim() || enriched.summary,
+        publishedAt: null,
+        stats: {},
+        source: 'manual',
+      },
+    ]);
+    try {
+      await scoreAndDraftOne(item);
+    } catch (e) {
+      return send(res, 200, { item, warning: `已入库但评分/起草失败：${e.message}` });
+    }
+    return send(res, 200, { item, counts: store.counts() });
   }
 
   if (method === 'POST' && pathname === '/api/run') {    if (isRunning()) return send(res, 409, { error: '已有抓取在进行中' });

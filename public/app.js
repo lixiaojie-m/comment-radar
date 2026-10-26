@@ -40,8 +40,8 @@ function scoreTier(score) {
   return 's-low';
 }
 
-const PF_LABEL = { bilibili: 'B站', zhihu: '知乎', hackernews: 'HN' };
-const TYPE_LABEL = { video: '视频', question: '问题', story: '帖子' };
+const PF_LABEL = { bilibili: 'B站', zhihu: '知乎', toutiao: '头条', hackernews: 'HN', douyin: '抖音', xiaohongshu: '小红书', manual: '手动' };
+const TYPE_LABEL = { video: '视频', question: '问题', story: '帖子', article: '文章', post: '笔记' };
 
 async function api(path, opts = {}) {
   const res = await fetch(path, {
@@ -181,6 +181,7 @@ function renderShell() {
         </div>
         <div class="topbar-right">
           <span class="run-pill" id="run-pill"><span class="dot"></span><span id="run-pill-text">…</span></span>
+          <button class="btn btn-outline" id="btn-ingest">＋ 投递链接</button>
           <button class="btn btn-primary" id="btn-run">立即抓取</button>
           <button class="btn-ghost" id="btn-logout" title="退出登录">退出</button>
         </div>
@@ -213,6 +214,7 @@ function renderShell() {
     renderLogin();
   });
   $('#btn-run').addEventListener('click', triggerRun);
+  $('#btn-ingest').addEventListener('click', openIngest);
   updateRunPill();
   renderMain();
 }
@@ -249,7 +251,7 @@ function renderMain() {
     <div class="main-head">
       <div><h2>${cfg.title}</h2><div class="desc">${cfg.desc}</div></div>
       <div class="chips" id="platform-chips">
-        ${['all', 'bilibili', 'zhihu', 'hackernews'].map((p) => `<span class="chip ${platformFilter === p ? 'active' : ''}" data-pf="${p}">${p === 'all' ? '全部' : PF_LABEL[p]}</span>`).join('')}
+        ${['all', 'bilibili', 'zhihu', 'toutiao', 'hackernews', 'douyin', 'xiaohongshu', 'manual'].map((p) => `<span class="chip ${platformFilter === p ? 'active' : ''}" data-pf="${p}">${p === 'all' ? '全部' : PF_LABEL[p]}</span>`).join('')}
         ${view === 'pending' || view === 'unscored' ? '<button class="btn-ghost primary" id="btn-redraft-all" title="用当前话术库把这一栏的草稿全部重写一遍">↻ 全部重新生成</button>' : ''}
       </div>
     </div>
@@ -551,6 +553,69 @@ function pollRedraft() {
   setTimeout(tick, 2000);
 }
 
+/* ---------- 手动投递链接 ---------- */
+
+function openIngest() {
+  const wrap = document.createElement('div');
+  wrap.className = 'modal-mask';
+  wrap.innerHTML = `
+    <div class="modal" role="dialog" aria-modal="true" aria-label="投递链接">
+      <h3>投递一条内容</h3>
+      <p class="modal-desc">适合抖音、小红书这类无法自动抓取的平台。手机上复制分享链接粘进来，能自动读标题就用自动的，读不到就手动补一句。</p>
+      <div class="field">
+        <label>链接</label>
+        <input type="text" id="ing-url" placeholder="https://v.douyin.com/… 或 https://www.xiaohongshu.com/…" autocomplete="off">
+      </div>
+      <div class="field">
+        <label>标题 / 内容摘要（自动读不到时必填）</label>
+        <textarea id="ing-title" placeholder="例如：用 Claude Code 一天重构了老项目" style="min-height:64px"></textarea>
+      </div>
+      <div class="modal-err" id="ing-err"></div>
+      <div class="modal-actions">
+        <button class="btn-ghost" id="ing-cancel">取消</button>
+        <button class="btn btn-primary" id="ing-submit">投递并起草</button>
+      </div>
+    </div>`;
+  document.body.appendChild(wrap);
+  const close = () => wrap.remove();
+  wrap.addEventListener('click', (e) => {
+    if (e.target === wrap) close();
+  });
+  $('#ing-cancel').addEventListener('click', close);
+  $('#ing-url').focus();
+
+  $('#ing-submit').addEventListener('click', async () => {
+    const btn = $('#ing-submit');
+    const url = $('#ing-url').value.trim();
+    const title = $('#ing-title').value.trim();
+    if (!/^https?:\/\//i.test(url)) {
+      $('#ing-err').textContent = '请填写以 http(s):// 开头的链接';
+      return;
+    }
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner"></span> 处理中';
+    $('#ing-err').textContent = '';
+    try {
+      const r = await api('/api/ingest', { method: 'POST', body: JSON.stringify({ url, title }) });
+      close();
+      const it = r.item;
+      const where = { pending: '已起草，去待审队列', low_score: '已归档到低分过滤', unscored: '已入库，待评分' }[it.status] || '已入库';
+      toast(r.warning ? r.warning : where);
+      refreshStatus();
+      if (it.status === 'pending' || it.status === 'low_score') {
+        lastListSig = '';
+        loadItems({ force: true });
+      }
+    } catch (e) {
+      // 平台拒绝自动读取时后端会要求补标题，直接把提示写回表单
+      $('#ing-err').textContent = e.message;
+      if (/补一句标题/.test(e.message)) $('#ing-title').focus();
+      btn.disabled = false;
+      btn.textContent = '投递并起草';
+    }
+  });
+}
+
 /* ---------- 立即抓取 ---------- */
 
 async function triggerRun() {
@@ -633,8 +698,11 @@ async function renderSettings() {
         <label class="switch"><input type="checkbox" id="src-bilibili" ${cfg.sources.bilibili ? 'checked' : ''}><span class="track"></span><span class="thumb"></span></label></div>
       <div class="switch-row"><span class="name">知乎</span><span class="note">热榜（全量，AI 筛选）</span>
         <label class="switch"><input type="checkbox" id="src-zhihu" ${cfg.sources.zhihu ? 'checked' : ''}><span class="track"></span><span class="thumb"></span></label></div>
+      <div class="switch-row"><span class="name">今日头条</span><span class="note">搜索页内嵌数据（取前 6 个关键词）</span>
+        <label class="switch"><input type="checkbox" id="src-toutiao" ${cfg.sources.toutiao ? 'checked' : ''}><span class="track"></span><span class="thumb"></span></label></div>
       <div class="switch-row"><span class="name">Hacker News</span><span class="note">英文内容，按需开启</span>
         <label class="switch"><input type="checkbox" id="src-hackernews" ${cfg.sources.hackernews ? 'checked' : ''}><span class="track"></span><span class="thumb"></span></label></div>
+      <div class="hint" style="margin:12px 0 0">抖音、小红书服务端拿不到内容（前者返回 JS 空壳，后者强制跳登录），改用顶部「投递链接」手动加入。</div>
     </div>
 
     <div class="form-section">
@@ -735,6 +803,7 @@ async function renderSettings() {
       sources: {
         bilibili: $('#src-bilibili').checked,
         zhihu: $('#src-zhihu').checked,
+        toutiao: $('#src-toutiao').checked,
         hackernews: $('#src-hackernews').checked,
       },
       fetchIntervalMinutes: Number($('#f-interval').value),
