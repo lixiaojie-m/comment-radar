@@ -57,7 +57,8 @@ export const store = {
 
   list({ status, platform, limit = 300 } = {}) {
     let arr = [...byId.values()];
-    if (status) arr = arr.filter((i) => i.status === status);
+    if (Array.isArray(status)) arr = arr.filter((i) => status.includes(i.status));
+    else if (status) arr = arr.filter((i) => i.status === status);
     if (platform && platform !== 'all') arr = arr.filter((i) => i.platform === platform);
     arr.sort((a, b) => (b.firstSeenAt || '').localeCompare(a.firstSeenAt || ''));
     return arr.slice(0, limit);

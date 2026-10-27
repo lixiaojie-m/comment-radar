@@ -45,6 +45,7 @@ export const isRunning = () => running;
  */
 export async function runPipeline(trigger = 'manual') {
   if (running) return { skipped: true, reason: '已有抓取在进行中' };
+  if (getConfig().paused) return { skipped: true, reason: '已暂停，先到设置页恢复' };
   running = true;
   const cfg = getConfig();
   const run = { at: new Date().toISOString(), trigger, sources: {}, added: 0, scored: 0, drafted: 0, errors: [] };

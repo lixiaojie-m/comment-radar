@@ -223,13 +223,28 @@ function updateRunPill() {
   const pill = $('#run-pill');
   if (!pill) return;
   const t = $('#run-pill-text');
+  const btn = $('#btn-run');
+  if (statusCache?.paused) {
+    pill.classList.remove('is-running');
+    t.textContent = '已暂停';
+    if (btn) {
+      btn.disabled = true;
+      btn.textContent = '已暂停';
+    }
+    return;
+  }
+  if (btn) btn.disabled = false;
   if (statusCache?.running) {
     pill.classList.add('is-running');
     t.textContent = '抓取中…';
   } else {
     pill.classList.remove('is-running');
     const last = statusCache?.lastRun;
-    t.textContent = last ? `上次抓取 ${new Date(last.at).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })} · 每 ${statusCache?.fetchIntervalMinutes ?? 30} 分钟` : '尚未抓取';
+    const iv = statusCache?.fetchIntervalMinutes ?? 1440;
+    const ivText = iv >= 10080 ? '每 7 天' : iv >= 1440 ? `每 ${Math.round(iv / 1440)} 天` : `每 ${Math.round(iv / 60)} 小时`;
+    t.textContent = last
+      ? `上次抓取 ${new Date(last.at).toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })} · ${ivText}`
+      : `尚未抓取 · ${ivText}`;
   }
 }
 
@@ -252,7 +267,7 @@ function renderMain() {
       <div><h2>${cfg.title}</h2><div class="desc">${cfg.desc}</div></div>
       <div class="chips" id="platform-chips">
         ${['all', 'bilibili', 'zhihu', 'toutiao', 'hackernews', 'douyin', 'xiaohongshu', 'manual'].map((p) => `<span class="chip ${platformFilter === p ? 'active' : ''}" data-pf="${p}">${p === 'all' ? '全部' : PF_LABEL[p]}</span>`).join('')}
-        ${view === 'pending' || view === 'unscored' ? '<button class="btn-ghost primary" id="btn-redraft-all" title="用当前话术库把这一栏的草稿全部重写一遍">↻ 全部重新生成</button>' : ''}
+        ${view === 'pending' || view === 'unscored' ? `<button class="btn-ghost primary" id="btn-redraft-all" title="${view === 'unscored' ? '补齐评分并为达标条目生成草稿' : '用当前话术库把这一栏的草稿全部重写一遍'}">${view === 'unscored' ? '↻ 全部评分并生成' : '↻ 全部重新生成'}</button>` : ''}
       </div>
     </div>
     <div id="banner"></div>
@@ -324,10 +339,10 @@ function updateRedraftAllState() {
   const job = statusCache?.redraftJob;
   if (job && !job.finishedAt) {
     btn.disabled = true;
-    btn.textContent = `重写中 ${job.done}/${job.total}`;
+    btn.textContent = job.phase === 'scoring' ? `评分中 ${job.done}/${job.total}` : `生成中 ${job.done}/${job.total}`;
   } else {
     btn.disabled = false;
-    btn.textContent = '↻ 全部重新生成';
+    btn.textContent = view === 'unscored' ? '↻ 全部评分并生成' : '↻ 全部重新生成';
   }
 }
 
@@ -518,7 +533,11 @@ async function triggerRedraftAll() {
   const btn = $('#btn-redraft-all');
   const count = statusCache?.counts?.[VIEWS[view].status] ?? 0;
   if (!count) return toast('这一栏没有条目');
-  if (!confirm(`把「${VIEWS[view].title}」里的 ${count} 条草稿全部用当前话术库重写一遍？\n已手动改过的草稿会被覆盖。`)) return;
+  const isUnscored = view === 'unscored';
+  const msg = isUnscored
+    ? `先给「未评分」里的 ${count} 条补做评分，再为达标的条目生成草稿？\n低分的会自动进归档。`
+    : `把「待审」里的 ${count} 条草稿全部用当前话术库重写一遍？\n已手动改过的草稿会被覆盖。`;
+  if (!confirm(msg)) return;
 
   btn.disabled = true;
   btn.textContent = '启动中…';
@@ -535,20 +554,12 @@ async function triggerRedraftAll() {
 
 function pollRedraft() {
   const tick = async () => {
+    await loadItems(); // 内部做数据签名比对，没变化不会重绘
     await refreshStatus();
-    try {
-      const data = await api(`/api/items?status=${view === 'unscored' ? 'unscored' : 'pending'}&platform=${platformFilter}`);
-      statusCache = { ...statusCache, counts: data.counts, redraftJob: data.redraftJob };
-      itemsCache = data.items;
-      updateNavCounts();
-      renderList();
-      updateRedraftAllState();
-    } catch {
-      /* 轮询失败继续 */
-    }
+    updateRedraftAllState();
     const job = statusCache?.redraftJob;
     if (job && !job.finishedAt) setTimeout(tick, 3000);
-    else if (job) toast(`重写完成：${job.done - job.failed} 条成功${job.failed ? `，${job.failed} 条失败` : ''}`);
+    else if (job) toast(`处理完成：${job.done - job.failed} 条成功${job.failed ? `，${job.failed} 条失败` : ''}`);
   };
   setTimeout(tick, 2000);
 }
@@ -635,9 +646,9 @@ async function triggerRun() {
   } catch (e) {
     if (e.message !== '未登录') toast('抓取超时/失败：' + e.message, 'err');
   } finally {
-    btn.disabled = false;
     btn.textContent = '立即抓取';
     await refreshStatus();
+    updateRunPill();
     if (view !== 'settings') loadItems();
   }
 }
@@ -710,10 +721,15 @@ async function renderSettings() {
       <div class="field-row">
         <div class="field"><label>抓取间隔</label>
           <select id="f-interval">
-            ${[10, 15, 30, 60, 120, 240].map((m) => `<option value="${m}" ${cfg.fetchIntervalMinutes === m ? 'selected' : ''}>每 ${m} 分钟</option>`).join('')}
+            ${[[360, '每 6 小时'], [720, '每 12 小时'], [1440, '每 24 小时'], [10080, '每 7 天']].map(([v, t]) => `<option value="${v}" ${Number(cfg.fetchIntervalMinutes) === v ? 'selected' : ''}>${t}</option>`).join('')}
           </select></div>
         <div class="field"><label>回看天数（只收最近 N 天发布的内容）</label>
           <input type="number" id="f-lookback" min="1" max="60" value="${cfg.lookbackDays}"></div>
+      </div>
+      <div class="switch-row" style="border-top:1px solid var(--border);margin-top:4px;padding-top:14px">
+        <span class="name">暂停所有自动化</span>
+        <span class="note">停止定时抓取，也不再为新内容自动评分和生成评论；手动投递和单条「重新生成」不受影响</span>
+        <label class="switch"><input type="checkbox" id="f-paused" ${cfg.paused ? 'checked' : ''}><span class="track"></span><span class="thumb"></span></label>
       </div>
       <div class="field-row">
         <div class="field"><label>评分阈值（低于此分进低分归档）</label>
@@ -750,6 +766,11 @@ async function renderSettings() {
           <input type="password" id="f-llm-key" placeholder="${llm.keySet ? '留空保持不变' : '粘贴 key'}" autocomplete="new-password"></div>
         <div class="field"><label>访问密码（改 UI 登录密码）</label>
           <input type="password" id="f-password" placeholder="留空保持不变" autocomplete="new-password"></div>
+      </div>
+      <div class="switch-row" style="border-top:1px solid var(--border);margin-top:4px;padding-top:14px">
+        <span class="name">关闭模型思考过程</span>
+        <span class="note">DeepSeek 等模型会先输出推理再给正文，推理吃掉输出预算会导致正文为空、生成失败</span>
+        <label class="switch"><input type="checkbox" id="f-nothink" ${cfg.llm?.disableThinking !== false ? 'checked' : ''}><span class="track"></span><span class="thumb"></span></label>
       </div>
     </div>
 
@@ -807,6 +828,7 @@ async function renderSettings() {
         hackernews: $('#src-hackernews').checked,
       },
       fetchIntervalMinutes: Number($('#f-interval').value),
+      paused: $('#f-paused').checked,
       lookbackDays: Math.max(1, Number($('#f-lookback').value) || 14),
       scoreThreshold: Number($('#f-threshold').value),
       maxPerKeyword: Math.max(1, Number($('#f-maxkw').value) || 8),
@@ -821,6 +843,7 @@ async function renderSettings() {
         baseUrl: $('#f-llm-url').value.trim(),
         model: $('#f-llm-model').value.trim(),
         apiKey: $('#f-llm-key').value.trim(),
+        disableThinking: $('#f-nothink').checked,
       },
       password: $('#f-password').value,
     };

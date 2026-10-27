@@ -1,7 +1,8 @@
 {
   "port": 8787,
   "password": "changeme",
-  "fetchIntervalMinutes": 30,
+  "paused": false,
+  "fetchIntervalMinutes": 1440,
   "lookbackDays": 14,
   "scoreThreshold": 0.6,
   "maxPerKeyword": 8,
@@ -26,7 +27,8 @@
   "llm": {
     "baseUrl": "https://open.bigmodel.cn/api/paas/v4",
     "model": "glm-4-flash",
-    "apiKey": ""
+    "apiKey": "",
+    "disableThinking": true
   },
   "productContext": "AISync：跨平台 AI 技能管理面板（桌面客户端 + 云空间），本地优先，支持 Claude Code、Codex、Gemini CLI、Cursor、ZCode 等 Agent 的技能扫描、收录、部署与同步；个人空间免费 5GB，本地能力永久免费。",
   "playbook": {

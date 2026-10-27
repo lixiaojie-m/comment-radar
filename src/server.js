@@ -6,7 +6,7 @@ import { getConfig, updateConfig, publicConfig, llmConfigured, rootDir } from '.
 import { store, flush } from './store.js';
 import { runPipeline, isRunning, scoreAndDraftOne } from './pipeline.js';
 import { startScheduler } from './scheduler.js';
-import { draftOne } from './llm.js';
+import { draftOne, scoreBatch } from './llm.js';
 import { detectPlatform, enrichFromUrl, PLATFORMS } from './ingest.js';
 import * as bilibili from './sources/bilibili.js';
 import * as zhihu from './sources/zhihu.js';
@@ -157,34 +157,62 @@ async function handleApi(req, res, url) {
   // 批量重生：改完话术库/prompt 后把存量草稿整体重写一遍
   if (method === 'POST' && pathname === '/api/redraft-all') {
     if (!llmConfigured()) return send(res, 400, { error: '未配置 LLM key，请到设置页填写' });
+    if (getConfig().paused) return send(res, 409, { error: '已暂停自动生成，先到设置页恢复' });
     if (redraftBusy()) return send(res, 409, { error: '批量生成进行中，请等它跑完' });
     const body = await readBody(req);
-    const status = body.status === 'unscored' ? 'unscored' : 'pending';
-    const targets = store.list({ status, limit: 500 }).map((it) => it.id);
+    const isUnscored = body.status === 'unscored';
+    // 未评分视图要连卡在 drafting 的一起处理，否则那些条目会永远停在中间态
+    const targets = store.list({ status: isUnscored ? ['unscored', 'drafting'] : 'pending', limit: 500 }).map((it) => it.id);
     if (!targets.length) return send(res, 200, { total: 0 });
 
-    redraftJob = { total: targets.length, done: 0, failed: 0, startedAt: new Date().toISOString(), finishedAt: null };
+    redraftJob = { total: targets.length, done: 0, failed: 0, phase: isUnscored ? 'scoring' : 'drafting', startedAt: new Date().toISOString(), finishedAt: null };
     const job = redraftJob;
     (async () => {
-      const avoid = store.recentDrafts(8);
-      for (const id of targets) {
-        const it = store.get(id);
-        if (!it) {
-          job.done++;
-          continue;
+      const threshold = getConfig().scoreThreshold ?? 0.6;
+
+      if (isUnscored) {
+        // 先补齐评分，只对达标的起草；低分的直接进归档，避免把一堆不相关内容变成待审
+        for (let i = 0; i < targets.length; i += 12) {
+          const chunk = targets.slice(i, i + 12).map((id) => store.get(id)).filter(Boolean);
+          if (!chunk.length) continue;
+          try {
+            const scores = await scoreBatch(chunk);
+            for (const s of scores) {
+              const it = store.get(s.id);
+              if (!it) continue;
+              it.score = Math.max(0, Math.min(1, Number(s.score) || 0));
+              it.angle = s.angle || '';
+              it.scoreReason = s.reason || '';
+              it.status = it.score >= threshold ? 'drafting' : 'low_score';
+            }
+          } catch {
+            job.failed += chunk.length;
+          }
+          job.done += chunk.length;
+          flush();
         }
+        job.phase = 'drafting';
+      }
+
+      const avoid = store.recentDrafts(8);
+      const toDraft = targets.map((id) => store.get(id)).filter((it) => it && it.status === 'drafting');
+      if (isUnscored) job.done = targets.length - toDraft.length;
+
+      for (const it of toDraft) {
         try {
           it.draft = await draftOne(it, avoid);
           avoid.push(it.draft);
           if (avoid.length > 14) avoid.shift();
-          if (it.status !== 'pending') it.status = 'pending';
+          it.status = 'pending';
           job.done++;
         } catch {
           job.failed++;
           job.done++;
+          if (!isUnscored) it.status = 'unscored';
         }
-        await new Promise((r) => setTimeout(r, 300));
+        await new Promise((r) => setTimeout(r, 250));
       }
+      job.total = job.done + toDraft.filter((it) => it.status === 'drafting').length;
       job.finishedAt = new Date().toISOString();
       flush();
     })().catch(() => {
@@ -232,7 +260,9 @@ async function handleApi(req, res, url) {
     return send(res, 200, { item, counts: store.counts() });
   }
 
-  if (method === 'POST' && pathname === '/api/run') {    if (isRunning()) return send(res, 409, { error: '已有抓取在进行中' });
+  if (method === 'POST' && pathname === '/api/run') {
+    if (getConfig().paused) return send(res, 409, { error: '已暂停，先到设置页恢复' });
+    if (isRunning()) return send(res, 409, { error: '已有抓取在进行中' });
     const runP = runPipeline('manual');
     const timeout = new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), 240_000));
     try {
@@ -252,6 +282,7 @@ async function handleApi(req, res, url) {
     const key = getConfig().llm?.apiKey || '';
     return send(res, 200, {
       running: isRunning(),
+      paused: Boolean(getConfig().paused),
       lastRun: last,
       counts: store.counts(),
       sources,
@@ -268,7 +299,7 @@ async function handleApi(req, res, url) {
   if (method === 'PUT' && pathname === '/api/config') {
     const body = await readBody(req);
     const patch = {};
-    for (const k of ['keywords', 'sources', 'scoreThreshold', 'fetchIntervalMinutes', 'lookbackDays', 'maxPerKeyword', 'productContext', 'playbook', 'password', 'llm']) {
+    for (const k of ['keywords', 'sources', 'paused', 'scoreThreshold', 'fetchIntervalMinutes', 'lookbackDays', 'maxPerKeyword', 'productContext', 'playbook', 'password', 'llm']) {
       if (body[k] !== undefined) patch[k] = body[k];
     }
     updateConfig(patch);

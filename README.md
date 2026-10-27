@@ -30,14 +30,21 @@ node src/server.js          # 首次启动自动从 config.example.json 生成 c
 
 | 字段 | 说明 |
 | --- | --- |
-| `keywords` | 监控关键词，用于 B 站搜索 / HN 检索 |
-| `sources` | 数据源开关 `bilibili` / `zhihu` / `hackernews` |
-| `fetchIntervalMinutes` | 抓取间隔（最小 5 分钟），保存后即时生效 |
+| `keywords` | 监控关键词，用于各平台的搜索 |
+| `sources` | 数据源开关 `bilibili` / `zhihu` / `toutiao` / `hackernews` |
+| `paused` | 暂停所有自动化：停止定时抓取、停止为新内容自动评分和起草（手动投递、单条重新生成不受影响） |
+| `fetchIntervalMinutes` | 抓取间隔，四档：`360`(6h) / `720`(12h) / `1440`(24h) / `10080`(7 天) |
 | `lookbackDays` | 只收最近 N 天发布的内容 |
 | `scoreThreshold` | 评分阈值，低于此分进低分归档 |
-| `llm` | `baseUrl` / `model` / `apiKey`，任何 OpenAI 兼容接口 |
+| `llm` | `baseUrl` / `model` / `apiKey` / `disableThinking`，任何 OpenAI 兼容接口 |
 | `productContext` | 产品口径，AI 评分与起草的背景知识 |
-| `playbook` | 评论纪律（硬约束）+ 话术示例（学语气不照抄） |
+| `playbook` | `productName` 产品名（用于校验是否真的带上）、`productMentionRate` 提及率、评论纪律、口吻示例 |
+
+### 关于 `disableThinking`
+
+DeepSeek 会把 `deepseek-chat` 路由到思考模型（响应里 `model=deepseek-flash` 且带 `reasoning_content`），思考过程先消耗 `max_tokens` 预算。评论起草的约束很多，思考会写得很长，正文就空了——表现为「重新生成经常失败 / LLM 空响应」。
+
+默认 `disableThinking: true`，请求里带 `thinking: {type: "disabled"}`。实测同样任务：思考 token 808 → 0，总 token 533 → 44，单条耗时约 20s → 1.5s。若换到不认该参数的 provider，客户端会自动去掉参数重试。
 
 ## 数据源现状
 

@@ -1,11 +1,21 @@
 import { getConfig, llmConfigured } from './config.js';
 import { fetchJson, sleep, truncate } from './util.js';
 
-/** OpenAI 兼容 chat 调用，带超时与 429/5xx 重试 */
-async function chat(messages, { json = false, temperature = 0.7, maxTokens = 1200 } = {}) {
+// 有的 provider 不认 thinking 字段，首次被拒后本次进程内不再发送
+let thinkingSupported = true;
+
+/**
+ * OpenAI 兼容 chat 调用，带超时与 429/5xx 重试。
+ *
+ * DeepSeek 把 deepseek-chat 路由到了思考模型（返回 model=deepseek-flash 且带 reasoning_content），
+ * 思考过程会先吃掉 max_tokens 预算：约束越多思考越长，正文越容易为空。起草这类任务不需要推理，
+ * 默认关掉思考；预算被撑满时也会自动关掉重试。
+ */
+async function chat(messages, { json = false, temperature = 0.7, maxTokens = 1200, _retry = 0 } = {}) {
   const cfg = getConfig().llm;
   const body = { model: cfg.model, messages, temperature, max_tokens: maxTokens };
   if (json) body.response_format = { type: 'json_object' };
+  if (cfg.disableThinking !== false && thinkingSupported) body.thinking = { type: 'disabled' };
 
   let lastErr;
   for (let attempt = 0; attempt < 3; attempt++) {
@@ -20,14 +30,29 @@ async function chat(messages, { json = false, temperature = 0.7, maxTokens = 120
         { timeoutMs: 90_000 },
       );
       if (!data) throw new Error(`LLM HTTP ${res.status}`);
-      if (data.error) throw new Error(data.error.message || JSON.stringify(data.error).slice(0, 120));
-      const choice = data.choices?.[0];
-      const text = choice?.message?.content;
-      if (!text) throw new Error('LLM 空响应');
-      // 被 token 上限截断的文本不能直接用，加倍预算重跑一次
-      if (choice.finish_reason === 'length' && maxTokens < 4000) {
-        return chat(messages, { json, temperature, maxTokens: maxTokens * 2 });
+      if (data.error) {
+        const msg = String(data.error.message || JSON.stringify(data.error)).slice(0, 120);
+        // 该接口不认 thinking 参数：降级去掉再试
+        if (body.thinking && /thinking|unknown|unsupported|invalid/i.test(msg)) {
+          thinkingSupported = false;
+          return chat(messages, { json, temperature, maxTokens, _retry });
+        }
+        throw new Error(msg);
       }
+
+      const choice = data.choices?.[0];
+      const text = choice?.message?.content ?? '';
+      const reasoning = choice?.message?.reasoning_content ?? '';
+
+      if (choice?.finish_reason === 'length' && maxTokens < 4000 && _retry < 2) {
+        return chat(messages, { json, temperature, maxTokens: maxTokens * 2, _retry: _retry + 1 });
+      }
+      // 正文被思考过程挤空：确认模型会先思考，关掉后重试
+      if (!text && reasoning && _retry < 2) {
+        thinkingSupported = false;
+        return chat(messages, { json, temperature, maxTokens, _retry: _retry + 1 });
+      }
+      if (!text) throw new Error('LLM 空响应');
       return text;
     } catch (e) {
       lastErr = e;
@@ -188,7 +213,7 @@ ${(pb.examples || []).length ? `\n团队积累过的真实口吻（只学语气�
   const productName = String(pb.productName || 'AISync');
   let text = '';
   for (let attempt = 0; attempt < 3; attempt++) {
-    text = (await chat(messages, { temperature: 1, maxTokens: 600 })).trim().replace(/^["「『]|["」』]$/g, '');
+    text = (await chat(messages, { temperature: 1, maxTokens: 800 })).trim().replace(/^["「『]|["」』]$/g, '');
     // prompt 管不住模型偶尔漏掉产品名，这里强制兜一层：没带上就重写
     if (!allow || text.includes(productName)) break;
   }

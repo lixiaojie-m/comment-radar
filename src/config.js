@@ -28,7 +28,7 @@ export const getConfig = () => config;
 export const llmConfigured = () => Boolean(config.llm && config.llm.apiKey);
 
 const EDITABLE_KEYS = [
-  'keywords', 'sources', 'scoreThreshold', 'fetchIntervalMinutes',
+  'keywords', 'sources', 'scoreThreshold', 'fetchIntervalMinutes', 'paused',
   'lookbackDays', 'maxPerKeyword', 'productContext', 'playbook', 'password', 'llm',
 ];
 
@@ -49,6 +49,7 @@ export function publicConfig() {
   return {
     keywords: config.keywords,
     sources: config.sources,
+    paused: Boolean(config.paused),
     scoreThreshold: config.scoreThreshold,
     fetchIntervalMinutes: config.fetchIntervalMinutes,
     lookbackDays: config.lookbackDays,
@@ -58,6 +59,7 @@ export function publicConfig() {
     llm: {
       baseUrl: config.llm?.baseUrl || '',
       model: config.llm?.model || '',
+      disableThinking: config.llm?.disableThinking !== false,
       keySet: Boolean(config.llm?.apiKey),
     },
   };
