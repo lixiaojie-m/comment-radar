@@ -195,7 +195,10 @@ async function handleApi(req, res, url) {
       }
 
       const avoid = store.recentDrafts(8);
-      const toDraft = targets.map((id) => store.get(id)).filter((it) => it && it.status === 'drafting');
+      // 未评分场景只处理刚评分达标的（drafting）；待审场景处理所有 pending
+      const toDraft = targets
+        .map((id) => store.get(id))
+        .filter((it) => it && it.status === (isUnscored ? 'drafting' : 'pending'));
       if (isUnscored) job.done = targets.length - toDraft.length;
 
       let n = 0;
@@ -215,7 +218,6 @@ async function handleApi(req, res, url) {
         if (++n % 10 === 0) flush();
         await new Promise((r) => setTimeout(r, 250));
       }
-      job.total = job.done + toDraft.filter((it) => it.status === 'drafting').length;
       job.finishedAt = new Date().toISOString();
       flush();
     })().catch(() => {
