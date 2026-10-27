@@ -211,11 +211,14 @@ ${(pb.examples || []).length ? `\n团队积累过的真实口吻（只学语气�
   ];
 
   const productName = String(pb.productName || 'AISync');
+  // 模型常把产品名写成小写，统一成规范写法（用前后非字母断言，避免动到 aisync.io 这类域名前缀）
+  const normalizeName = (s) => (productName === 'AISync' ? s.replace(/(?<![A-Za-z])aisync(?![A-Za-z])/gi, 'AISync') : s);
+
   let text = '';
   for (let attempt = 0; attempt < 3; attempt++) {
-    text = (await chat(messages, { temperature: 1, maxTokens: 800 })).trim().replace(/^["「『]|["」』]$/g, '');
+    text = normalizeName((await chat(messages, { temperature: 1, maxTokens: 800 })).trim().replace(/^["「『]|["」』]$/g, ''));
     // prompt 管不住模型偶尔漏掉产品名，这里强制兜一层：没带上就重写
-    if (!allow || text.includes(productName)) break;
+    if (!allow || text.toLowerCase().includes(productName.toLowerCase())) break;
   }
   return text;
 }

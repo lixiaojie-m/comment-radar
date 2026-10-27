@@ -722,7 +722,8 @@ async function renderSettings() {
         <div class="field"><label>抓取间隔</label>
           <select id="f-interval">
             ${[[360, '每 6 小时'], [720, '每 12 小时'], [1440, '每 24 小时'], [10080, '每 7 天']].map(([v, t]) => `<option value="${v}" ${Number(cfg.fetchIntervalMinutes) === v ? 'selected' : ''}>${t}</option>`).join('')}
-          </select></div>
+          </select>
+          <div class="hint" style="margin-top:6px">配合「暂停」可随时停掉全部自动化。</div></div>
         <div class="field"><label>回看天数（只收最近 N 天发布的内容）</label>
           <input type="number" id="f-lookback" min="1" max="60" value="${cfg.lookbackDays}"></div>
       </div>

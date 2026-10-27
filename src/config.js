@@ -19,7 +19,22 @@ function deepMerge(base, over) {
 
 const example = readJson(path.join(ROOT, 'config.example.json'), {});
 let config = deepMerge(example, readJson(CONFIG_FILE, {}));
+
+// 抓取间隔只保留四档；旧配置里的 10/30/240 分钟等值归一到最接近的档位，
+// 避免设置页下拉里没有匹配项时静默变成第一档
+export const INTERVAL_CHOICES = [360, 720, 1440, 10080];
+const nearestInterval = (v) => {
+  const n = Number(v);
+  if (INTERVAL_CHOICES.includes(n)) return n;
+  if (!Number.isFinite(n) || n <= 0) return 1440;
+  return INTERVAL_CHOICES.reduce((a, b) => (Math.abs(b - n) < Math.abs(a - n) ? b : a), INTERVAL_CHOICES[0]);
+};
+config.fetchIntervalMinutes = nearestInterval(config.fetchIntervalMinutes);
+
 if (!fs.existsSync(CONFIG_FILE)) {
+  writeJsonAtomic(CONFIG_FILE, config);
+} else if (readJson(CONFIG_FILE, {}).fetchIntervalMinutes !== config.fetchIntervalMinutes) {
+  // 旧档位已在内存里归一，同步写回文件，避免每次启动重复换算
   writeJsonAtomic(CONFIG_FILE, config);
 }
 
@@ -37,6 +52,7 @@ export function updateConfig(patch) {
   for (const k of EDITABLE_KEYS) {
     if (patch[k] !== undefined) next[k] = patch[k];
   }
+  if (next.fetchIntervalMinutes !== undefined) next.fetchIntervalMinutes = nearestInterval(next.fetchIntervalMinutes);
   // 空密码 / 空 key 视为"不修改"，避免设置页把已有密钥抹掉
   if (next.password === '') delete next.password;
   if (next.llm && next.llm.apiKey === '') next.llm = { ...config.llm, ...next.llm, apiKey: config.llm.apiKey };
