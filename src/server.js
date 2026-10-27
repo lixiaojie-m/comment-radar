@@ -198,6 +198,7 @@ async function handleApi(req, res, url) {
       const toDraft = targets.map((id) => store.get(id)).filter((it) => it && it.status === 'drafting');
       if (isUnscored) job.done = targets.length - toDraft.length;
 
+      let n = 0;
       for (const it of toDraft) {
         try {
           it.draft = await draftOne(it, avoid);
@@ -210,6 +211,8 @@ async function handleApi(req, res, url) {
           job.done++;
           if (!isUnscored) it.status = 'unscored';
         }
+        // 每 10 条落一次盘：批量跑到一半被重启/部署打断时不至于整批白跑
+        if (++n % 10 === 0) flush();
         await new Promise((r) => setTimeout(r, 250));
       }
       job.total = job.done + toDraft.filter((it) => it.status === 'drafting').length;

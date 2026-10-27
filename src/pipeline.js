@@ -99,6 +99,7 @@ export async function runPipeline(trigger = 'manual') {
       const toDraft = candidates
         .map((c) => store.get(c.id))
         .filter((it) => it && it.status === 'drafting');
+      let draftedCount = 0;
       for (const it of toDraft) {
         try {
           it.draft = await draftOne(it, avoid);
@@ -111,6 +112,8 @@ export async function runPipeline(trigger = 'manual') {
           run.errors.push(`草稿失败(${it.id}): ${e.message}`);
           it.status = 'unscored';
         }
+        // 一轮可能起草几十条，中途落盘避免进程中止时全部丢失
+        if (++draftedCount % 10 === 0) flush();
       }
     } else if (candidates.length) {
       for (const c of candidates) {
