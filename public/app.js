@@ -762,6 +762,12 @@ async function renderSettings() {
         <textarea id="f-examples" spellcheck="false">${escapeHtml((cfg.playbook?.examples || []).join('\n'))}</textarea></div>
       <div class="field"><label>产品名（用于校验每条草稿是否真的带上了，留空则不做校验）</label>
         <input type="text" id="f-product-name" value="${escapeHtml(cfg.playbook?.productName || 'AISync')}" placeholder="AISync"></div>
+      <div class="field-row">
+        <div class="field"><label>字数下限</label>
+          <input type="number" id="f-min-len" min="5" max="200" value="${cfg.playbook?.minLength ?? 20}"></div>
+        <div class="field"><label>字数上限 <span style="font-weight:400;color:var(--faint)">（超出会重写，以此为准）</span></label>
+          <input type="number" id="f-max-len" min="10" max="300" value="${cfg.playbook?.maxLength ?? 40}"></div>
+      </div>
       <div class="field"><label>产品提及率（1 = 每条都带产品；调到 0.5 则一半是纯干货，更不像广告号）</label>
         <div class="range-row"><input type="range" id="f-mention-rate" min="0" max="1" step="0.05" value="${cfg.playbook?.productMentionRate ?? 1}"><output id="f-mention-out">${cfg.playbook?.productMentionRate ?? 1}</output></div></div>
     </div>
@@ -847,6 +853,8 @@ async function renderSettings() {
       productContext: $('#f-product').value.trim(),
       playbook: {
         productName: $('#f-product-name').value.trim(),
+        minLength: Math.max(5, Number($('#f-min-len').value) || 20),
+        maxLength: Math.max(10, Number($('#f-max-len').value) || 40),
         discipline: $('#f-discipline').value.split('\n').map((s) => s.trim()).filter(Boolean),
         examples: $('#f-examples').value.split('\n').map((s) => s.trim()).filter(Boolean),
         productMentionRate: Number($('#f-mention-rate').value),

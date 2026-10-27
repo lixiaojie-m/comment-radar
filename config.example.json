@@ -34,6 +34,8 @@
   "playbook": {
     "productName": "AISync",
     "productMentionRate": 1,
+    "minLength": 20,
+    "maxLength": 40,
     "discipline": [
       "以真实用户身份提供增量信息（真实体验、技巧补充），先给干货再自然带出工具",
       "禁用模板化广告话术；每条评论的内容、句式都要不同",

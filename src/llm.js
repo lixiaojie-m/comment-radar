@@ -109,7 +109,7 @@ const AI_TELL_WORDS = [
 ];
 
 // ★ 真实感的关键：真人评论一般不完整、不总结、不做广告收尾
-const STYLE_RULES = `1. 长度：25~80 字是常态，最多 110 字。宁可短，短得像随手打的。
+const buildStyleRules = (minLen, maxLen) => `1. 长度必须落在 ${minLen}~${maxLen} 字之间（含标点），这是硬性要求，超出范围会被打回重写。宁可短。
 2. 不要写成「问题 → 方案 → 效果」的完整三段论。真人经常只吐槽一句、只补一个细节、只反问一句。
 3. 必须出现至少一个具体到无法泛化的细节：具体报错、具体命令、具体版本号、具体文件、具体耗时、具体价格、具体踩过的坑。
 4. 句式要松。允许断句、省略主语、用口语词（啊 / 嘛 / 吧 / 就 / 直接 / 硬是 / 反正），允许一句话没说完。
@@ -138,24 +138,25 @@ const MENTION_STYLES = [
   '只提一次，放在句子中段做插入语，不要单独成句',
 ];
 
-const STYLE_EXAMPLES = `（下面左边是 AI 味，右边是真人；学右边，绝不学左边）
+const STYLE_EXAMPLES = `（左边是 AI 味，右边是真人；学右边，绝不学左边）
 
 AI：「这个 skill 我试了下，脚本逐帧渲染那套确实稳，比让模型直接吐视频靠谱多了。补充个思路：这种代码型 skill 很适合沉淀成团队资产，省下的时间够多打磨两个新技能了。」
-真人：「逐帧渲染这招我服。不过我这边 1080p 一分钟要跑四十分钟，你用的什么卡」
+真人：「逐帧渲染这招我服，不过我 1080p 跑一分钟要四十分钟」
 
 AI：「技能变现这块我试过一阵，光有想法不行，得有靠谱的工具链支撑。」
-真人：「变现这条路我试过，最后发现卡点根本不在工具，在没人愿意为 skill 掏钱」
+真人：「变现我试过，卡点不在工具，在没人愿意掏钱」
 
 AI：「多 agent 并行最怕的就是互相覆盖，我之前的笨办法是给每个 agent 单独开 Git 分支，合并前先 diff 一遍，能挡掉大部分冲突。」
-真人：「八个 agent 同时改同一个文件，第二天早上看到 30 个冲突差点心梗。现在只敢让它们分目录干活」
+真人：「八个 agent 改同一个文件，早上起来 30 个冲突，差点心梗」
 
 AI：「看完最大的感受是，Stripe 快不是因为模型多强，而是把上下文沉淀下来了。」
-真人：「在 Stripe 待过的朋友说他们内部文档比代码还多，新人第一周基本都在读文档，这点挺反直觉的」
+真人：「在 Stripe 待过的朋友说他们内部文档比代码还多，挺反直觉的」
 
 —— 带产品的真人写法（重点是"顺口一提"，不是"介绍功能"）——
 
 AI 味：「我后来用 AISync 统一管理所有技能，跨平台自动同步，效率提升明显，强烈推荐。」
-真人：「我也差不多，两个 agent 来回改同一个配置，后面干脆按 agent 分了目录，顺手丢 AISync 里存着，换机器直接拉回来。就是团队共享那块还没用明白」`;
+真人：「我也差不多，后来按 agent 分了目录，顺手丢 AISync 里，换机器直接拉回来」
+更短：「改错文件我也踩过，现在都挂 AISync 了」`;
 
 /** 单条起草：avoidDrafts 是最近已发评论，用于避开雷同句式 */
 export async function draftOne(item, avoidDrafts = [], { allowProduct } = {}) {
@@ -165,13 +166,17 @@ export async function draftOne(item, avoidDrafts = [], { allowProduct } = {}) {
   // 默认每条都带产品（引流目的），rate 调低才会出现纯干货条目
   const allow = allowProduct === undefined ? Math.random() < rate : Boolean(allowProduct);
 
+  const minLen = Math.max(5, Number(pb.minLength) || 20);
+  const maxLen = Math.max(minLen, Number(pb.maxLength) || 40);
+
   const productRule = allow
     ? `这条要带到产品，但必须是「真实用户在讲自己的做法时顺口提到」，不是推荐、不是介绍功能。
 
 本次指定的提及方式（必须按这个来，不要用其他套路）：${MENTION_STYLES[Math.floor(Math.random() * MENTION_STYLES.length)]}
 
 硬要求：
-- 产品只出现在后半段，前面必须先有具体的干货或经历，且干货至少占一半篇幅
+- 全篇只有 ${minLen}~${maxLen} 字，干货和产品都必须极度精简，产品那句最好五六个字带过
+- 产品只出现在后半段，前面必须先有具体的干货或经历
 - 只讲一个具体用法，绝不罗列功能
 - 产品全名最多出现一次，说完就收，不要重复强调
 - 绝对不能出现：统一管理、一键、自动同步、沉淀、资产、神器、强烈推荐、效率翻倍、值得一试、平替
@@ -183,7 +188,7 @@ export async function draftOne(item, avoidDrafts = [], { allowProduct } = {}) {
 产品背景（仅供你判断话题，不等于每次都要提）：${cfg.productContext}
 
 写作硬约束：
-${STYLE_RULES}
+${buildStyleRules(minLen, maxLen)}
 
 真人感对照：
 ${STYLE_EXAMPLES}
@@ -213,14 +218,39 @@ ${(pb.examples || []).length ? `\n团队积累过的真实口吻（只学语气�
   const productName = String(pb.productName || 'AISync');
   // 模型常把产品名写成小写，统一成规范写法（用前后非字母断言，避免动到 aisync.io 这类域名前缀）
   const normalizeName = (s) => (productName === 'AISync' ? s.replace(/(?<![A-Za-z])aisync(?![A-Za-z])/gi, 'AISync') : s);
+  // 中文按字符数算，不能用 .length（emoji 等会算成 2）
+  const charLen = (s) => [...s].length;
 
-  let text = '';
-  for (let attempt = 0; attempt < 3; attempt++) {
-    text = normalizeName((await chat(messages, { temperature: 1, maxTokens: 800 })).trim().replace(/^["「『]|["」』]$/g, ''));
-    // prompt 管不住模型偶尔漏掉产品名，这里强制兜一层：没带上就重写
-    if (!allow || text.toLowerCase().includes(productName.toLowerCase())) break;
+  // 字数和产品名都靠代码兜底：模型对长度约束的遵从度很低，只写在 prompt 里必然跑偏
+  // 重试时把上一次的结果和偏差一起喂回去，让它定向压缩，比单纯重抽有效得多
+  let conversation = messages;
+  let best = null;
+  let bestPenalty = Infinity;
+  for (let attempt = 0; attempt < 4; attempt++) {
+    const t = normalizeName((await chat(conversation, { temperature: 1, maxTokens: 800 })).trim().replace(/^["「『]|["」』]$/g, ''));
+    const len = charLen(t);
+    const missingProduct = allow && !t.toLowerCase().includes(productName.toLowerCase());
+    const lengthPenalty = len < minLen ? minLen - len : len > maxLen ? len - maxLen : 0;
+    const penalty = lengthPenalty + (missingProduct ? 100 : 0);
+    if (penalty === 0) return t;
+    if (penalty < bestPenalty) {
+      bestPenalty = penalty;
+      best = t;
+    }
+
+    if (attempt === 3) break;
+    const advice = missingProduct
+      ? `这条没有提到 ${productName}，必须在后半段用一句极短的话带上。`
+      : len > maxLen
+        ? `这条 ${len} 字，超了 ${len - maxLen} 字。砍掉铺垫、解释和第二个例子，只留一个最具体的细节加产品那句。`
+        : `这条 ${len} 字，还差 ${minLen - len} 字，补充一个具体细节凑到范围内。`;
+    conversation = [
+      ...messages,
+      { role: 'assistant', content: t },
+      { role: 'user', content: `${advice}总长必须落在 ${minLen}~${maxLen} 字之间（含标点）。直接给改写后的评论正文，不要解释。` },
+    ];
   }
-  return text;
+  return best;
 }
 
 export { llmConfigured };
