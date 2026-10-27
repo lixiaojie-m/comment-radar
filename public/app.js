@@ -302,6 +302,7 @@ const EMPTY_SVG = `<svg width="120" height="84" viewBox="0 0 120 84" fill="none"
 
 // 轮询与批量重写都会反复拉数据；数据没变就不该重建 DOM，否则卡片入场动画会重放成闪屏
 let lastListSig = '';
+let loadSeq = 0;
 const animatedIds = new Set();
 
 const listSignature = (items) =>
@@ -310,8 +311,11 @@ const listSignature = (items) =>
 async function loadItems({ force = false } = {}) {
   const cfg = VIEWS[view];
   if (!cfg || !cfg.status) return;
+  const seq = ++loadSeq;
   try {
     const data = await api(`/api/items?status=${cfg.status}&platform=${platformFilter}`);
+    // 请求可能乱序返回：过期的响应会把刚生成的草稿覆盖回旧内容，直接丢弃
+    if (seq !== loadSeq) return;
     itemsCache = data.items;
     statusCache = { ...statusCache, counts: data.counts, lastRun: data.lastRun, running: data.running, redraftJob: data.redraftJob };
     updateRunPill();
@@ -376,6 +380,8 @@ function renderList() {
   } else {
     list.innerHTML = itemsCache.map((it, i) => rowCard(it, i)).join('');
   }
+  // 记录本次渲染对应的数据签名，后续轮询拿同样数据时不必重建 DOM
+  lastListSig = listSignature(itemsCache);
   bindCardEvents();
 }
 
@@ -499,7 +505,12 @@ function bindCardEvents() {
         btn.innerHTML = '<span class="spinner"></span> 生成中';
         try {
           const { item: updated } = await api(`/api/items/${encodeURIComponent(id)}/redraft`, { method: 'POST' });
-          Object.assign(item, updated);
+          // 轮询会整体替换 itemsCache，这里捕获的 item 可能已失效；
+          // 必须按 id 在最新数组里更新，否则改的是没人渲染的旧对象
+          loadSeq++; // 让仍在飞的列表请求作废，避免它们带着旧草稿回写
+          const idx = itemsCache.findIndex((x) => x.id === id);
+          if (idx >= 0) itemsCache[idx] = { ...itemsCache[idx], ...updated };
+          else itemsCache = [updated, ...itemsCache];
           renderList();
           toast('已生成新草稿');
         } finally {
