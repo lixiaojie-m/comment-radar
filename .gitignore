@@ -1,5 +1,6 @@
 node_modules/
 data/
+conf/
 config.json
 *.log
-CONFIG_FILE=./*.tmp.json
+*.tmp.json

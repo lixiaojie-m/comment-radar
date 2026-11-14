@@ -1,24 +1,31 @@
 #!/usr/bin/env bash
-# 部署 comment-radar 到 NAS（nas-host，docker 常驻容器）
-# 前提：本机公钥已加入 NAS 账号 user 的 authorized_keys
-# 用法: ./deploy/deploy-nas.sh
+# 部署 comment-radar 到远端主机（docker 常驻容器）
+#
+# 用法:
+#   DEST=user@host [REMOTE_DIR=/path/to/comment-radar] [PORT=8788] ./deploy/deploy-nas.sh
+# 前提: 本机公钥已加入目标机器该账号的 ~/.ssh/authorized_keys
 set -euo pipefail
 
-DEST="user@host"
-REMOTE_DIR="/opt/comment-radar"
+DEST="${DEST:-${1:-}}"
+if [ -z "$DEST" ]; then
+  echo "用法: DEST=user@host [REMOTE_DIR=/path/to/comment-radar] [PORT=8788] $0" >&2
+  exit 1
+fi
+REMOTE_DIR="${REMOTE_DIR:-${2:-/opt/comment-radar}}"
 CONTAINER="comment-radar"
-PORT="${PORT:-8787}"
+PORT="${PORT:-8788}"
 
 cd "$(dirname "$0")/.."
 
-echo "==> 同步代码到 $DEST:$REMOTE_DIR（保留远端 data/ 与 config.json）"
+echo "==> 同步代码到 $DEST:$REMOTE_DIR（保留远端 conf/ 与 data/）"
 tar czf - \
   --exclude .git \
   --exclude data \
+  --exclude conf \
   --exclude config.json \
   --exclude node_modules \
-  src public package.json config.example.json Dockerfile .dockerignore README.md \
-  | ssh "$DEST" "mkdir -p $REMOTE_DIR/data && tar xzf - -C $REMOTE_DIR"
+  src public package.json config.example.json Dockerfile .dockerignore README.md deploy \
+  | ssh "$DEST" "mkdir -p $REMOTE_DIR/conf $REMOTE_DIR/data && tar xzf - -C $REMOTE_DIR"
 
 echo "==> 构建镜像并(重)启容器"
 ssh "$DEST" "cd $REMOTE_DIR \
@@ -38,4 +45,4 @@ ssh "$DEST" "cd $REMOTE_DIR \
   && docker logs --tail 5 $CONTAINER"
 
 echo ""
-echo "==> 访问: http://nas-host:$PORT（密码见 $REMOTE_DIR/conf/config.json）"
+echo "==> 完成，浏览器访问 http://<目标主机>:$PORT（密码见 $REMOTE_DIR/conf/config.json）"

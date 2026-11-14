@@ -79,19 +79,20 @@ DeepSeek 会把 `deepseek-chat` 路由到思考模型（响应里 `model=deepsee
 
 ## 部署
 
-当前生产部署在 NAS（nas-host）上，以 Docker 常驻容器运行：
+推荐用 Docker 常驻容器：
 
 ```bash
-PORT=8788 bash deploy/deploy-nas.sh     # 前提：本机公钥已加入 NAS 账号 authorized_keys
+DEST=user@host REMOTE_DIR=/path/to/comment-radar PORT=8788 bash deploy/deploy-nas.sh
+# 前提：本机公钥已加入目标机器的 ~/.ssh/authorized_keys
 ```
 
-- 容器名 `comment-radar`，`--restart unless-stopped`（NAS 重启后自动拉起）
-- 持久化：`/opt/comment-radar/conf/`（配置，目录挂载）与 `data/`（数据），bind mount，重建容器不丢数据
-- 访问：`http://nas-host:8788`（NAS 的 8787 被 NAS 系统服务占用，外网端口用 8788）
-- 基础镜像用 NAS 本地已有的 `node:22-bookworm`（Docker Hub 直拉会卡住）
-- LLM 配置为 DeepSeek（`https://api.deepseek.com` / `deepseek-chat`），key 在网页设置页填写
+- 容器名 `comment-radar`，`--restart unless-stopped`（宿主机重启后自动拉起）
+- 持久化：`$REMOTE_DIR/conf/`（配置，目录挂载）与 `$REMOTE_DIR/data/`，重建容器不丢数据
+- 端口：容器内监听 8787，宿主端口由 `PORT` 指定
+- 基础镜像 `node:22-bookworm`；若 Docker Hub 拉取受限，可先在宿主机 `docker pull` 缓存后用本地镜像构建
+- LLM 默认 DeepSeek（`https://api.deepseek.com` / `deepseek-chat`），key 在网页设置页填写，不落仓库
 
-其他环境可用 `deploy/deploy.sh`（systemd 方式，需要 root）。
+其他环境可用 `deploy/deploy.sh user@host`（systemd 方式，需要 root）。
 
 数据落在 `data/store.json`（JSON 文件存储，每天自动清理 45 天前的终态条目）。设置页可随时导出全部数据。
 
